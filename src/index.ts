@@ -55,7 +55,7 @@ function rotateAccount(errorStatus: number): boolean {
   if (accounts.length === 0) return false;
 
   if (errorStatus === 403) {
-    console.log(`\n\x1b[31m[Invalid/Expired] Slot ${accounts[currentSlot].slot} (${accounts[currentSlot].email}) marked as expired.\x1b[0m`);
+    console.log(`\n\x1b[31m[Invalid/Expired/Blocked] Slot ${accounts[currentSlot].slot} (${accounts[currentSlot].email}) failed with 403.\x1b[0m`);
     accounts[currentSlot].status = 'expired';
   } else if (errorStatus === 429) {
     console.log(`\n\x1b[33m[Rate-Limited] Slot ${accounts[currentSlot].slot} (${accounts[currentSlot].email}) hit limits.\x1b[0m`);
@@ -99,10 +99,8 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
       continue;
     }
 
-    let cookieString = `sessionKey=${activeAccount.sessionKey};`;
-    if (activeAccount.routingHint && activeAccount.routingHint.trim() !== "") {
-      cookieString += ` routingHint=${activeAccount.routingHint};`;
-    }
+    // সম্পূর্ণ কুকি স্ট্রিং সরাসরি হেডার পাসের জন্য লোড করা হচ্ছে
+    const cookieString = activeAccount.cookieString;
     
     try {
       const response = await axios({
@@ -176,30 +174,27 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
   return '';
 }
 
-// স্বয়ংক্রিয় ইন্টারেক্টিভ অ্যাকাউন্ট এডিং ফাংশন
 function addNewAccountPrompt(rl: readline.Interface) {
-  console.log('\n\x1b[34m--- Add New Claude Account Token ---\x1b[0m');
+  console.log('\n\x1b[34m--- Add New Claude Account with Full Cookie ---\x1b[0m');
   rl.question('Enter Account Email: ', (email) => {
-    rl.question('Enter sessionKey (sk-ant-sid02-...): ', (sessionKey) => {
-      rl.question('Enter routingHint (Optional, press Enter to skip): ', (routingHint) => {
-        
-        const config = loadConfig();
-        const newSlot = config.accounts.length + 1;
-        
-        config.accounts.push({
-          slot: newSlot,
-          email: email.trim(),
-          sessionKey: sessionKey.trim(),
-          routingHint: routingHint.trim(),
-          status: 'active'
-        });
-        
-        saveConfig(config);
-        console.log(`\n\x1b[32m[Success] Slot ${newSlot} (${email.trim()}) successfully added to config.json!\x1b[0m\n`);
-        
-        rl.close();
-        startCLI(); // মেইন মেনুতে ব্যাক করা
+    console.log('\x1b[33m[Instruction] Open Browser -> F12 -> Network -> Click any request -> Copy full value of "cookie" header\x1b[0m');
+    rl.question('Enter Full Cookie String: ', (cookieString) => {
+      
+      const config = loadConfig();
+      const newSlot = config.accounts.length + 1;
+      
+      config.accounts.push({
+        slot: newSlot,
+        email: email.trim(),
+        cookieString: cookieString.trim(),
+        status: 'active'
       });
+      
+      saveConfig(config);
+      console.log(`\n\x1b[32m[Success] Slot ${newSlot} (${email.trim()}) successfully added with anti-bot bypass tokens!\x1b[0m\n`);
+      
+      rl.close();
+      startCLI();
     });
   });
 }
@@ -213,7 +208,6 @@ function startChatSequence(rl: readline.Interface) {
     return;
   }
 
-  // ১. মডেল সিলেকশন
   console.log('\nSelect Model:');
   console.log('1. Claude Sonnet 4.6 (Default)');
   console.log('2. Claude Haiku 4.5');
@@ -224,7 +218,6 @@ function startChatSequence(rl: readline.Interface) {
       selectedModel = 'claude-haiku-4-5';
     }
 
-    // ২. থিংকিং সুইচ সিলেকশন
     console.log('\nThinking Switch:');
     console.log('1. Enable Thinking (Default)');
     console.log('2. Disable Thinking');
@@ -235,7 +228,6 @@ function startChatSequence(rl: readline.Interface) {
         isThinkingEnabled = false;
       }
 
-      // ৩. এফোর্ট লেভেল সিলেকশন
       console.log('\nSelect Reasoning Effort Level:');
       console.log('1. Low');
       console.log('2. Medium');
@@ -254,7 +246,7 @@ function startChatSequence(rl: readline.Interface) {
         console.log('Type your message and press Enter. Type "exit" to quit.\n');
 
         const promptUser = () => {
-          rl.question('\x1b[33mYou > \x1b[0m', async (input) => {
+          rl.question('\x1b[33mYou > \x1b[0m', async (input: string) => {
             const trimmedInput = input.trim();
             
             if (trimmedInput.toLowerCase() === 'exit') {
