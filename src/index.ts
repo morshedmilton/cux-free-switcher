@@ -2,7 +2,6 @@
 
 /*
   Copyright (C) 2026 Md. Morshed Milton
-  
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
@@ -31,15 +30,7 @@ function initializeConfig() {
   }
   if (!fs.existsSync(configPath)) {
     const defaultConfig = {
-      accounts: [
-        {
-          slot: 1,
-          email: "default@example.com",
-          sessionKey: "sk-ant-sid02-default",
-          routingHint: "sk-ant-rh-default",
-          status: "active"
-        }
-      ],
+      accounts: [],
       current_slot: 0
     };
     fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
@@ -61,6 +52,8 @@ function rotateAccount(errorStatus: number): boolean {
   const currentSlot = config.current_slot;
   const accounts = config.accounts;
   
+  if (accounts.length === 0) return false;
+
   if (errorStatus === 403) {
     console.log(`\n\x1b[31m[Invalid/Expired] Slot ${accounts[currentSlot].slot} (${accounts[currentSlot].email}) marked as expired.\x1b[0m`);
     accounts[currentSlot].status = 'expired';
@@ -100,7 +93,7 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
     const config = loadConfig();
     const activeAccount = config.accounts[config.current_slot];
     
-    if (activeAccount.status !== 'active') {
+    if (!activeAccount || activeAccount.status !== 'active') {
       const skipped = rotateAccount(0);
       if (!skipped) return '';
       continue;
@@ -129,8 +122,8 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
             prompt: prompt,
             timezone: 'Asia/Dhaka',
             model: model, 
-            thinking: thinking, // নতুন থিংকিং মোড সুইচ
-            effort: effort       // নতুন ৪-লেভেল এফোর্ট প্যারামিটার
+            thinking: thinking, 
+            effort: effort       
           }
         },
         responseType: 'stream'
@@ -183,18 +176,45 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
   return '';
 }
 
-function startCLI() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
+// স্বয়ংক্রিয় ইন্টারেক্টিভ অ্যাকাউন্ট এডিং ফাংশন
+function addNewAccountPrompt(rl: readline.Interface) {
+  console.log('\n\x1b[34m--- Add New Claude Account Token ---\x1b[0m');
+  rl.question('Enter Account Email: ', (email) => {
+    rl.question('Enter sessionKey (sk-ant-sid02-...): ', (sessionKey) => {
+      rl.question('Enter routingHint (Optional, press Enter to skip): ', (routingHint) => {
+        
+        const config = loadConfig();
+        const newSlot = config.accounts.length + 1;
+        
+        config.accounts.push({
+          slot: newSlot,
+          email: email.trim(),
+          sessionKey: sessionKey.trim(),
+          routingHint: routingHint.trim(),
+          status: 'active'
+        });
+        
+        saveConfig(config);
+        console.log(`\n\x1b[32m[Success] Slot ${newSlot} (${email.trim()}) successfully added to config.json!\x1b[0m\n`);
+        
+        rl.close();
+        startCLI(); // মেইন মেনুতে ব্যাক করা
+      });
+    });
   });
+}
 
-  console.log('\x1b[35m====================================================\x1b[0m');
-  console.log('\x1b[35m   CUX Free Switcher CLI - Active & Context Ready   \x1b[0m');
-  console.log('\x1b[35m====================================================\x1b[0m');
+function startChatSequence(rl: readline.Interface) {
+  const config = loadConfig();
+  if (config.accounts.length === 0) {
+    console.log('\n\x1b[31m[Error] No accounts found in pool! Please add an account first.\x1b[0m\n');
+    rl.close();
+    startCLI();
+    return;
+  }
 
   // ১. মডেল সিলেকশন
-  console.log('Select Model:');
+  console.log('\nSelect Model:');
   console.log('1. Claude Sonnet 4.6 (Default)');
   console.log('2. Claude Haiku 4.5');
   
@@ -215,7 +235,7 @@ function startCLI() {
         isThinkingEnabled = false;
       }
 
-      // ৩. এফোর্ট লেভেল সিলেকশন (ফ্রি অ্যাকাউন্টের ৪টি লেভেল)
+      // ৩. এফোর্ট লেভেল সিলেকশন
       console.log('\nSelect Reasoning Effort Level:');
       console.log('1. Low');
       console.log('2. Medium');
@@ -230,12 +250,11 @@ function startCLI() {
         else if (choice === '3') selectedEffort = 'high';
         else if (choice === '4') selectedEffort = 'max';
 
-        // কনফিগারেশন চিরতরে লক
         console.log(`\n\x1b[32m[Config Locked] Model: ${selectedModel} | Thinking: ${isThinkingEnabled} | Effort: ${selectedEffort}\x1b[0m`);
         console.log('Type your message and press Enter. Type "exit" to quit.\n');
 
         const promptUser = () => {
-          rl.question('\x1b[33mYou > \x1b[0m', async (input: string) => {
+          rl.question('\x1b[33mYou > \x1b[0m', async (input) => {
             const trimmedInput = input.trim();
             
             if (trimmedInput.toLowerCase() === 'exit') {
@@ -267,6 +286,35 @@ function startCLI() {
         promptUser();
       });
     });
+  });
+}
+
+function startCLI() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  console.log('\x1b[35m====================================================\x1b[0m');
+  console.log('\x1b[35m   CUX Free Switcher CLI - Active & Context Ready   \x1b[0m');
+  console.log('\x1b[35m====================================================\x1b[0m');
+  console.log('1. Start Claude Chat Session');
+  console.log('2. Add New Account to Pool');
+  console.log('3. Exit');
+
+  rl.question('\nSelect an option (1-3): ', (choice) => {
+    const trimmed = choice.trim();
+    if (trimmed === '1') {
+      startChatSequence(rl);
+    } else if (trimmed === '2') {
+      addNewAccountPrompt(rl);
+    } else if (trimmed === '3') {
+      rl.close();
+    } else {
+      console.log('\x1b[31mInvalid option. Restarting...\x1b[0m\n');
+      rl.close();
+      startCLI();
+    }
   });
 }
 
