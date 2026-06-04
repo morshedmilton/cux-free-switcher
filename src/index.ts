@@ -106,7 +106,10 @@ async function handleChatStream(prompt: string, model: string, thinking: boolean
       continue;
     }
 
-    const cookieString = `sessionKey=${activeAccount.sessionKey}; routingHint=${activeAccount.routingHint};`;
+    let cookieString = `sessionKey=${activeAccount.sessionKey};`;
+    if (activeAccount.routingHint && activeAccount.routingHint.trim() !== "") {
+      cookieString += ` routingHint=${activeAccount.routingHint};`;
+    }
     
     try {
       const response = await axios({
